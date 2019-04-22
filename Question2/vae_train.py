@@ -172,7 +172,7 @@ def estimate_log_likelihood(data_loader, device, split="valid"):
             log_px = importance_sampling(model, mini_batch_x, Z)
             log_likelihood_estimate += log_px.sum()
             print("log_px shape", log_px.shape)
-            print('log_px estimate of mini-batch {} of {} set: {:.4f}'.format(batch_idx, split, log_px))
+            print('log_px estimate of mini-batch {} of {} set: {}'.format(batch_idx, split, log_px))
             print('log_px estimate of mini-batch {} of {} set: {:.4f}'.format(batch_idx, split, log_px.mean()))
 
         print('log_px estimate of {} set: {:.4f}'.format(split, log_likelihood_estimate / len(data_loader.dataset)))
