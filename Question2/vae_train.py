@@ -82,13 +82,15 @@ def generate(model_path, device):
     print("Loading model....\n")
     model = VAE().to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
-    z = torch.randn(10, 100).to(device)
-    decoding = model.fc_decode(z)
-    decoding = decoding.reshape(decoding.shape[0], decoding.shape[1], 1, 1)
-    gen_output = model.decoder(decoding)
-    gen_output = gen_output.squeeze().detach().numpy()
-    gen_output[gen_output >= 0.5] = 1
-    gen_output[gen_output < 0.5] = 0
+    model.eval()
+    with torch.no_grad():
+        z = torch.randn(10, 100).to(device)
+        decoding = model.fc_decode(z)
+        decoding = decoding.reshape(decoding.shape[0], decoding.shape[1], 1, 1)
+        gen_output = model.decoder(decoding)
+        gen_output = gen_output.squeeze().detach().cpu().numpy()
+        gen_output[gen_output >= 0.5] = 1
+        gen_output[gen_output < 0.5] = 0
     # plotting
     fig, axs = plt.subplots(2, 5)
     fig.suptitle('Generated images')
@@ -101,7 +103,7 @@ def generate(model_path, device):
 
 def generate_K_samples(mu, logvar, K):
     std = torch.exp(0.5 * logvar)
-    e = torch.randn((mu.shape[0], K, mu.shape[1]))
+    e = torch.randn((mu.shape[0], K, mu.shape[1])).to(mu.device)
     Z = mu.unsqueeze(1) + e * std.unsqueeze(1)
     return Z
 
@@ -124,12 +126,6 @@ def importance_sampling(model, mini_batch_x, Z):
     mu = model.fc_mu(hidden.squeeze())
     logvar = model.fc_logvar(hidden.squeeze())
 
-    var = logvar.exp()
-    det_covar = var.prod(dim=1, keepdim=True).numpy()
-
-    # softplus used for log sigmoid i.e log prob
-    softplus = nn.Softplus(beta=-1)
-
     log_p_x_z = []
     # Loop over K importance samples
     for k in range(K):
@@ -137,40 +133,47 @@ def importance_sampling(model, mini_batch_x, Z):
         decoding = model.fc_decode(z)
         decoding = decoding.reshape(decoding.shape[0], decoding.shape[1], 1, 1)
         recon_output = model.decoder(decoding)
-        # out_log_probs = softplus(recon_output)
-        # output_probs = out_log_probs.view(out_log_probs.shape[0], -1).sum(1)
-        BCE = -F.binary_cross_entropy_with_logits(recon_output, mini_batch_x, reduction='none')
-        log_p_x_z.append(BCE.squeeze().sum(2).sum(1))
+
+        log_prob = -F.binary_cross_entropy_with_logits(recon_output, mini_batch_x, reduction='none')
+        log_p_x_z.append(log_prob.squeeze().sum(2).sum(1))
 
     log_p_x_z = torch.stack(log_p_x_z, 0).transpose(1, 0)  # (M,K)
 
+    var = logvar.exp()
+    det_covar = var.prod(dim=1, keepdim=True).cpu().numpy()
     det_factor = np.sqrt(det_covar) / K
+
     p_z_q_z = log_p_x_z - 0.5 * (Z.pow(2) - (Z - mu.unsqueeze(1)).pow(2) / var.unsqueeze(1)).sum(2)
-    p_z_q_z = p_z_q_z.numpy()
+    p_z_q_z = p_z_q_z.cpu().numpy()
     log_px = logsumexp(p_z_q_z, axis=1, b=det_factor)
     return log_px
 
 
-def estimate_log_likelihodd(data_loader, device, split="valid"):
+def estimate_log_likelihood(data_loader, device, split="valid"):
 
-    model_path = "model.pth"
+    model_path = "best_model.pth"
     model = VAE().to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     # The number of importance samples
     K = 200
     model.eval()
 
+    log_likelihood_estimate = 0.0
+
     with torch.no_grad():
         for batch_idx, mini_batch_x in enumerate(data_loader):
             recon_output, mu, logvar = model(mini_batch_x)
-            break
-        # sample K=200 importance samples from posterior q(z|x_i)
-        # Z is of size (M, K, L)
-        Z = generate_K_samples(mu, logvar, K)
-        # estimate log-likelihood
-        log_px = importance_sampling(model, mini_batch_x, Z)
-        print("log_px estimate of one mini-batch of " + split + " set: ", log_px)
-        print("log_px estimate of one mini-batch of " + split + " set: ", log_px.mean())
+
+            # sample K=200 importance samples from posterior q(z|x_i)
+            # Z is of size (M, K, L)
+            Z = generate_K_samples(mu, logvar, K)
+            # estimate log-likelihood for a batch
+            log_px = importance_sampling(model, mini_batch_x, Z)
+            log_likelihood_estimate += log_px.sum()
+            print('log_px estimate of mini-batch {} of {} set: '.format(batch_idx, split, log_px))
+            print('log_px estimate of mini-batch {} of {} set: '.format(batch_idx, split, log_px.mean()))
+        print("log_px shape", log_px.shape)
+        print('log_px estimate of {} set: '.format(split, log_likelihood_estimate / len(data_loader.dataset)))
 
 
 def main(train_loader, valid_loader, test_loader, n_epochs, device, lr=3e-4):
@@ -217,14 +220,14 @@ if __name__ == "__main__":
     train_loader, valid_loader, test_loader = get_data_loader("binarized_mnist", 64)
 
     # training and validation
-    main(train_loader, valid_loader, test_loader, n_epochs, device, lr)
+    # main(train_loader, valid_loader, test_loader, n_epochs, device, lr)
 
     # generate some samples using trained model
     model_path = "best_model.pth"
     generate(model_path, device)
 
     # Estimate log likelihood of trained model on validation set
-    # estimate_log_likelihodd(valid_loader, device, split="valid")
+    estimate_log_likelihood(valid_loader, device, split="valid")
 
-    # # Estimate log likelihood of trained model on test set
-    # estimate_log_likelihodd(test_loader, device, split="test")
+    # Estimate log likelihood of trained model on test set
+    estimate_log_likelihood(test_loader, device, split="test")
