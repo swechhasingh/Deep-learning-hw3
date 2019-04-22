@@ -162,6 +162,7 @@ def estimate_log_likelihood(data_loader, device, split="valid"):
 
     with torch.no_grad():
         for batch_idx, mini_batch_x in enumerate(data_loader):
+            mini_batch_x = mini_batch_x.to(device)
             recon_output, mu, logvar = model(mini_batch_x)
 
             # sample K=200 importance samples from posterior q(z|x_i)
