@@ -51,12 +51,12 @@ def train(model, optimizer, epoch, train_loader, device):
                 100. * batch_idx / len(train_loader),
                 elbo_loss.item() / len(inputs)))
 
-    print('Epoch: {} Average loss: {:.4f}'.format(
+    print('Train Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
     return train_loss / len(train_loader.dataset)
 
 
-def test(model, epoch, test_loader, device):
+def test(model, epoch, test_loader, device, split="Valid"):
 
     model.eval()
     test_loss = 0.0
@@ -68,13 +68,13 @@ def test(model, epoch, test_loader, device):
             test_loss += elbo_loss.item()
 
             if batch_idx % 10 == 0:
-                print('Test Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, batch_idx * len(inputs), len(test_loader.dataset),
+                print('{} Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    split, epoch, batch_idx * len(inputs), len(test_loader.dataset),
                     100. * batch_idx / len(test_loader),
                     elbo_loss.item() / len(inputs)))
 
-    print('Epoch: {} Average loss: {:.4f}'.format(
-          epoch, test_loss / len(test_loader.dataset)))
+    print('{} Epoch: {} Average loss: {:.4f}'.format(
+          split, epoch, test_loss / len(test_loader.dataset)))
     return test_loss / len(test_loader.dataset)
 
 
@@ -82,11 +82,13 @@ def generate(model_path, device):
     print("Loading model....\n")
     model = VAE().to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
-    z = torch.randn(10, 100)
+    z = torch.randn(10, 100).to(device)
     decoding = model.fc_decode(z)
     decoding = decoding.reshape(decoding.shape[0], decoding.shape[1], 1, 1)
     gen_output = model.decoder(decoding)
     gen_output = gen_output.squeeze().detach().numpy()
+    gen_output[gen_output >= 0.5] = 1
+    gen_output[gen_output < 0.5] = 0
     # plotting
     fig, axs = plt.subplots(2, 5)
     fig.suptitle('Generated images')
@@ -94,7 +96,7 @@ def generate(model_path, device):
     for i in range(2):
         for j in range(5):
             axs[i, j].imshow(gen_output[j + i * 5])
-    plt.show()
+    plt.savefig("Generated_Samples.png")
 
 
 def generate_K_samples(mu, logvar, K):
@@ -182,23 +184,33 @@ def main(train_loader, valid_loader, test_loader, n_epochs, device, lr=3e-4):
     # Training VAE
     for epoch in range(n_epochs):
         train_loss = train(model, optimizer, epoch, train_loader, device)
-        valid_loss = test(model, epoch, valid_loader, device)
+        valid_loss = test(model, epoch, valid_loader, device, split="Valid")
         train_losses.append(train_loss)
         valid_losses.append(valid_loss)
 
     print("Saving the model")
-    torch.save(model.state_dict(), "model.pth")
-    plt.plot(train_losses, "train")
-    plt.plot(valid_losses, "valid")
+    torch.save(model.state_dict(), "best_model.pth")
+    plt.plot(train_losses, label="train loss")
+    plt.plot(valid_losses, label="valid loss")
     plt.title("Learning curves")
+    plt.xlabel("Epochs")
+    plt.ylabel("Negative ELBO")
+    plt.legend()
     plt.savefig("Learning_curves.png")
 
     print("Evaluation on test set----------")
-    test_loss = test(model, epoch, test_loader, device)
+    test_loss = test(model, epoch, test_loader, device, split="Test")
 
 if __name__ == "__main__":
+
+    # fix seed
+    np.random.seed(1234)
+    torch.manual_seed(1234)
+
+    # hyper-parameters
     n_epochs = 20
     lr = 3e-4
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # load the dataset
@@ -208,8 +220,8 @@ if __name__ == "__main__":
     main(train_loader, valid_loader, test_loader, n_epochs, device, lr)
 
     # generate some samples using trained model
-    # model_path = "model.pth"
-    # generate(model_path, device)
+    model_path = "best_model.pth"
+    generate(model_path, device)
 
     # Estimate log likelihood of trained model on validation set
     # estimate_log_likelihodd(valid_loader, device, split="valid")

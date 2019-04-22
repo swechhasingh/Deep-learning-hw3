@@ -38,7 +38,7 @@ class VAE(nn.Module):
 
     def reparameterization_trick(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
-        e = torch.randn(mu.shape)
+        e = torch.randn(mu.shape).to(mu.device)
         return mu + e * std
 
     def forward(self, input):
@@ -51,9 +51,10 @@ class VAE(nn.Module):
         recon_output = self.decoder(decoding)
         return recon_output, mu, logvar
 
-    # Reconstruction(binary cross entropy loss) + KL divergence losses summed over all elements and batch
     def ELBO(self, recon_x, x, mu, logvar):
         """ 
+            Reconstruction(binary cross entropy loss) + KL divergence losses summed
+            over all pixels of an input and all inputs in a batch
             return: -ELBO(= BCE + DKL)
         """
         BCE = F.binary_cross_entropy_with_logits(recon_x, x, reduction='sum')
