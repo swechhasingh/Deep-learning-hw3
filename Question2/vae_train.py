@@ -220,7 +220,7 @@ if __name__ == "__main__":
     train_loader, valid_loader, test_loader = get_data_loader("binarized_mnist", 64)
 
     # training and validation
-    # main(train_loader, valid_loader, test_loader, n_epochs, device, lr)
+    main(train_loader, valid_loader, test_loader, n_epochs, device, lr)
 
     # generate some samples using trained model
     model_path = "best_model.pth"
