@@ -1,7 +1,7 @@
 # Deep-learning-hw3
 
 ## Question 1
-All the sub parts of question 1 arre implemented in jupyter notebook in Question1 folder:
+All the sub parts of question 1 are implemented in jupyter notebook in Question1 folder:
 ```
 Solution.ipynb
 ```
